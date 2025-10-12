@@ -4,7 +4,9 @@
 
 
 # Fine-tune LeRobot $\pi_0$ in SimplerEnv with Online RL
+
 Author: Tonghe Zhang
+
 Date: July, 2025 to October, 2025
 
 * Note that the commands in this readme are outdated. Visit the .sh instead. 
