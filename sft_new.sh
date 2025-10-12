@@ -1,0 +1,8 @@
+
+export OMP_NUM_THREADS=4
+n_ACTION_STEPS=8
+ACT_STEPS=5
+NUM_STEPS=4
+TASK_NAME=PutOnPlateInScene25Main-v3
+NAME=${TASK_NAME}_outchunk${n_ACTION_STEPS}_exechunk${ACT_STEPS}_denoise${NUM_STEPS}_4gpus_disteval
+nohup torchrun --standalone --nproc-per-node=4 scripts/sft/train_sft_disteval.py name=${NAME} task_name=${TASK_NAME} n_action_steps=${n_ACTION_STEPS} act_steps=${ACT_STEPS} num_steps=${NUM_STEPS} model.path=/mnt/public/zhangtonghe/physical-intelligence model.config_overrides.lang_tokenizer_path=/mnt/public/zhangtonghe/google/paligemma-3b-pt-224 dataset.normalization_path=/mnt/public/zhangtonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Main-v3/mp_18432/normalization.pt dataset.shard_metadata_path_train=/mnt/public/zhangtonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Main-v3/mp_18432/train_dataset_sharded_with_lengths.json dataset.shard_metadata_path_val=/mnt/public/zhangtonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Main-v3/mp_18432/val_dataset_sharded_with_lengths.json training.num_workers=4 training.num_val_workers=0 device.model_device=auto     training.use_amp=false    training.warmup_steps=0 training.learning_rate=1e-4 scheduler.min_lr=1e-4 training.batch_size=8     training.max_steps=80000     training.save_freq=1000 training.verbose=false training.verbose_val=false logging.log_freq=50 eval.eval_steps=1000 eval.test_in_sim=true sim_num_envs=16 wandb.offline_mode=true > ${NAME}.log 2>&1 &

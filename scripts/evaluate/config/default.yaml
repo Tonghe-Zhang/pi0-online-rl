@@ -1,0 +1,52 @@
+# Default configuration for pi0 ManiSkill3 evaluation
+verbose: true
+verbose_each_step: true 
+
+# Environment settings
+env:
+  id: "PutOnPlateInScene25Single-v1"    # "PutOnPlateInScene25Main-v3"
+  num_envs: 2
+  max_episode_len: 80
+  obs_mode: "rgb+segmentation"
+  control_mode: "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+  sim_config:
+    sim_freq: 500
+    control_freq: 5
+  sensor_configs:
+    shader_pack: "default"
+
+# Model settings
+model:
+  path: "physical-intelligence/pi0_base/pretrained_model"
+  device: "cuda:0"
+  deterministic: false
+  model_overrides:       # overrides these from prompt input to this yaml file then to the model json file.
+    num_steps: null      # Integration steps of the flow ODE. 
+    n_action_steps: null # Model's output action chunk size  
+    act_steps: null      # Eventually executed action chunk size 
+
+# Simulation settings
+sim:
+  device: "cuda:0"
+  backend: "gpu"  # Will be set to "cpu" if sim.device is "cpu"
+
+# Evaluation settings
+eval:
+  seed: 0
+
+# Output settings
+output:
+  dir: "results/eval_pi0_maniskill"
+  save_videos: true
+  save_data: true
+  info_on_video: true 
+
+# Path to dataset statistics
+dataset_stats:
+  "/nvme_data/tonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Single-v1/pi0_sft_normalization.pt"
+  # "/nvme_data/tonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Main-v3/pi0_sft_normalization.json"
+
+
+
+
+  

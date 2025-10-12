@@ -1,0 +1,135 @@
+# Pi0 Supervised Fine-tuning Configuration
+defaults:
+  - _self_
+hydra:
+  run:
+    dir: ${output.dir}
+  output_subdir: null   # not save the ./hydra/ dir. 
+
+task_name: PutOnPlateInScene25Main-v3
+procedure: sft
+name: pi0_${procedure}_${task_name}
+
+# Key variables:
+n_action_steps: 10            # model's output action chunk size  
+act_steps: 5                  # eventually executed action chunk size 
+num_steps: 4                  # Integration steps of the flow ODE. 
+sim_num_envs: 25
+save_videos: true
+
+# Model configuration
+model:
+  path: "physical-intelligence/pi0_base/pretrained_model"
+  config_overrides:
+    num_steps: ${num_steps}
+    n_action_steps: ${n_action_steps}
+    act_steps: ${act_steps}
+    lang_tokenizer_path: "google/paligemma-3b-pt-224"
+  freeze_vision_encoder: True
+  train_expert_only: True
+
+# Dataset configuration  
+dataset:
+  normalization_path: "/nvme_data/tonghe/openpi/normalization/pi0/warmup/PutOnPlateInScene25Main-v3/normalization.pt"
+  use_iterable: true
+  shard_metadata_path_train: "/nvme_data/tonghe/RL4VLA/datasets/mp_collect/PutOnPlateInScene25Main-v3/12800/shards-split/train_dataset_sharded.json"
+  shard_metadata_path_val: "/nvme_data/tonghe/RL4VLA/datasets/mp_collect/PutOnPlateInScene25Main-v3/12800/shards-split/val_dataset_sharded.json"
+  path: "/nvme_data/tonghe/RL4VLA/datasets/warmup/pi0_sft/${task_name}/pi0_sft.pt"
+  shuffle: true
+  map_location: "cpu"
+  
+  # Multi-step dataset configuration
+  use_multi_step: true    # Set to true to enable multi-step training
+  horizon_steps: ${n_action_steps}       # Number of future action steps to predict (action chunking), this should be the same as model.config.n_action_steps
+  cond_steps: 1           # Number of historical observation steps to condition on
+  img_cond_steps: 1       # Number of historical image steps (defaults to cond_steps)
+  
+
+# Training configuration
+training:
+  batch_size: 32
+  n_epoch: 100              # dummy value. number of times we traverse the dataset. actual total training steps will be determined by max_steps.  
+  max_steps: 10000          # total gradient step number. when exceeded, break training loop. 
+  learning_rate: 1e-5
+  weight_decay: 1e-6
+  grad_accumulation_steps: 1
+  grad_clip_norm: 10.0      # Gradient clipping threshold
+  warmup_steps: 10
+  save_freq: 50            # save checkpoint every `save_freq` steps (batch). 
+  resume_from_checkpoint: null
+  num_workers: 8
+  num_val_workers: 0
+  verbose: true
+  verbose_val: true
+  use_amp: true            # Enable mixed precision training
+  use_ema: false
+  ema_alpha: 0.995         # EMA decay rate
+  ema_update_every: 1      # Update EMA every N steps (batches)
+
+# Evaluation configuration
+eval:
+  enabled: true
+  eval_steps: 50           # evaluate every `eval_steps` steps (batch). 
+  num_eval_batches: null   # If null, evaluate on the entire validation set.  Otherwise, evaluate on the first num_eval_batches. 
+  eval_main_model: true    # Evaluate main model
+  eval_ema_model: true     # Evaluate EMA model
+  test_in_sim: true
+  sim_cfg_path: "evaluate/config/default.yaml"
+  sim_cfg_overrides:       # Example overrides: key paths like 'num_envs' or 'sim.device'
+    env.id: ${task_name}
+    env.num_envs: ${sim_num_envs}
+    env.max_episode_len: 50
+    sim.device: cuda:0
+    model.model_overrides.num_steps: ${num_steps}
+    model.model_overrides.n_action_steps: ${n_action_steps}
+    model.model_overrides.act_steps: ${act_steps}
+    verbose_each_step: false
+    output.save_videos: ${save_videos}
+
+# Optimizer configuration
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1e-8
+
+# Scheduler configuration  
+scheduler:
+  type: "cosine_with_warmup" # CosineAnnealingLR by default. 
+  min_lr: 1e-5
+
+# Logging configuration
+wandb:
+  entity: ${oc.env:PIR_WANDB_ENTITY}
+  project: pi0_sft
+  run: ${now:%Y-%m-%d}_${now:%H-%M-%S}_${name}
+  offline_mode: false
+
+logging:
+  log_freq: 10         # log the train losses every `log_freq` steps (batch). 
+
+# Output configuration
+output:
+  dir: /mnt/public/zhangtonghe/openpi/results/sft_pi0_maniskill/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  save_latest_only: false
+
+# Device configuration
+device:
+  model_device: "auto"  # auto, cuda, cpu
+  distributed: true
+  sim_device: "cuda:0"
+
+domain_randomization: # following RL4VLA's
+  visual_augment_type:
+    random_resized_crop: 
+      scale: [0.9, 0.9]
+      ratio: [1.0, 1.0]
+    random_brightness: 0.2
+    random_contrast: 
+      min: 0.8
+      max: 1.2
+    random_saturation: 
+      min: 0.8
+      max: 1.2
+    random_hue: 0.05
+  visual_augment_order: ["random_resized_crop", "random_brightness", "random_contrast", "random_saturation", "random_hue"]
+  debug_mode: false

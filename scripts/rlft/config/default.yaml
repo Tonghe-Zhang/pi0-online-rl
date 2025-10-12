@@ -1,0 +1,237 @@
+# Default configuration for RL fine-tuning of pi0 model in ManiSkill3
+defaults:
+  - _self_
+
+hydra:
+  run:
+    dir: ${output.dir}
+  output_subdir: null   # not save the ./hydra/ dir. 
+  # job_logging: stdout # log to stdout instead of the file. 
+
+_target_: runner.ppo_runner.PPORunner
+
+# Wandb default run name's core component (can be overloaded)
+name: ${env.id}_seed${seed}
+
+# Random seed
+seed: 0
+
+# Key parameters:
+num_steps: 10       # RLFT training denoising /integration steps
+num_steps_eval: 10
+act_steps: 5        # Actually deployed action chunk size. 
+n_action_steps: 50  # Model's output action chunk size. 
+
+# Resume training
+resume_dir: null  # Path to checkpoint for resuming training
+
+# Environment settings
+env:
+  id: "PutOnPlateInScene25Main-v3" #"PutOnPlateInScene25Single-v1"
+  num_envs: 16  # Number of parallel environments for RL training
+  max_episode_len: 80   # Maximum steps per episode (used for environment truncation)
+  n_steps_rollout: 160  # Number of environment interactions per rollout in each iteration
+  obs_mode: "rgb+segmentation"
+  control_mode: "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+  sim_config:
+    sim_freq: 500
+    control_freq: 5
+  sensor_configs:
+    shader_pack: "default"
+  reset_at_iteration: true
+  obs:   # to accomodate to the lerobot pi0 model's input format. this should align with pi0 model's config.json. 
+    rgb_keys: ["observation.images.top"]
+    proprioception_key: "observation.state"
+    language_key: "task"
+
+# Simulation settings
+sim:
+  device: "cuda:0"
+  backend: "gpu"
+
+# Model settings
+model:
+  path: "physical-intelligence/pi0_base/pretrained_model"
+  device: "cuda:0"
+  freeze_vision_encoder: true 
+  train_expert_only: true
+  model_config_overrides:       # overrides these from prompt input to this yaml file then to the model json file.
+    num_steps: ${num_steps}      # Integration steps of the flow ODE. 
+    n_action_steps: ${n_action_steps} # Model's output action chunk size  
+    act_steps: ${act_steps}      # Eventually executed action chunk size 
+    lang_tokenizer_path: google/paligemma-3b-pt-224
+
+rlft_config:
+  act_steps: ${act_steps}                 # deployed action chunk size
+  sample_mode: "ode"                      # sample mode for the policy, during the rollout stage, we use sde default
+  sde_mode: "reinflow"                    # SDE mode for the policy, "flow-grpo" or "reinflow". 
+  noise_scheduler_type: "learn"           # type of noise scheduler for "flow-grpo" or "reinflow". const, const_schedule_itr, learn, learn_decay
+  explore_noise_net:                      # MLP for reinflow noise injection 
+    noise_logvar_min: 0.08                # Noise scheduling for exploration in reinflow
+    noise_logvar_max: 0.16                # Noise scheduling for exploration in reinflow
+    hidden_dims: [128,64]
+    activation_type: tanh
+  critic:
+    hidden_dims: [512, 256]      # Critic maps: [1024, *hidden_dims, 1]
+    activation_type: gelu
+    out_activation_type: identity
+    use_layernorm: true
+    use_layernorm_final: false
+    dropout: 0.1
+    use_drop_final: false
+    out_bias_init: 1.0
+  detach_feature_before_input_critic: true
+  average_critic_input_by_deployed_chunk: true
+  num_steps: ${num_steps}   # denoising steps for training. you can change it to 5 for stability. 
+  num_steps_eval: ${num_steps_eval} # denoising steps for evaluation. you can change it to 5 for stability. 
+  noise_level: 0.5          # noise level
+  adv_method: "gae"         # to be initialized in the train config   
+  denoise_action_min: None  # the minimum value of the denoised actions (valid only when there is indeed a physical constraint on the action space), used to clip the intermediate actions. None means no clipping. 
+  denoise_action_max: None  # the maximum value of the denoised actions (valid only when there is indeed a physical constraint on the action space), used to clip the intermediate actions. None means no clipping. 
+  time_discretization: uniform
+  normalize_denoising_horizon: true  # normalize the log probability over the denoising horizon
+  normalize_action_chunk_full_dim: true  # normalize the log probability over the action chunk full dimension
+
+
+# Path to dataset statistics
+dataset:
+  # normalization_path: "/nvme_data/tonghe/RL4VLA/datasets/warmup/pi0_sft/PutOnPlateInScene25Single-v1/pi0_sft_normalization.pt"
+  normalization_path: "/nvme_data/tonghe/openpi/normalization/pi0/warmup/PutOnPlateInScene25Main-v3/normalization.pt"
+
+# Buffer settings
+buffer:
+  device: "cuda:0"  # Buffer device (use CPU to save GPU memory but slows down compute)
+  dtype: "float32"  # Buffer data type
+
+# Domain randomization
+domain_randomization: # following RL4VLA's
+  visual_augment_type:
+    random_resized_crop: 
+      scale: [0.9, 0.9]
+      ratio: [1.0, 1.0]
+    random_brightness: 0.2
+    random_contrast: 
+      min: 0.8
+      max: 1.2
+    random_saturation: 
+      min: 0.8
+      max: 1.2
+    random_hue: 0.05
+  visual_augment_order: ["random_resized_crop", "random_brightness", "random_contrast", "random_saturation", "random_hue"]
+  debug_mode: false
+
+# Reward settings
+reward:
+  reward_scale_running: true                  # Whether to use running reward scaling
+  reward_scale_const: 1.0                     # Constant reward scaling factor
+  ignore_nextvalue_when_truncated: false      # Whether to ignore the next-step value for truncated rollout steps.
+  success_rew_threshold_in_chunk: 1.0
+
+# Training settings of actor-critic policy gradient algorithm
+train:
+  # Training iterations and steps
+  n_train_itr: 1000  # PPO iterations (number of rollouts in the whole training procedure)
+  
+  # Critic warmup and evaluation
+  n_critic_warmup_itr: 10  # Warm up period for critic before actor updates
+  val_freq: 10  # Validation  (every N iterations)
+  log_freq: 1  # Logging frequency (every N iterations)
+  
+  record_video_condition: "last"  # Video recording condition: 'first', 'last', 'periodic'
+  video_freq: 100  # Video recording frequency (every N iterations)
+  
+  save_model_freq: 50  # Save model every N iterations
+  skip_initial_eval: false  # Whether to skip evaluation at iteration 0
+  
+  # PPO hyperparameters
+  batch_size: 512  # Batch size for PPO gradient update
+  gamma: 0.99  # Discount factor
+  gae_lambda: 0.95  # Generalized advantage estimation lambda
+  target_kl: null  # Target KL divergence (null = no early stopping)
+  max_grad_norm: null  # Gradient clipping norm (null = no clipping)
+  update_epochs: 1  # Number of times the collected data is used in gradient update
+  grad_accumulate: 1  # Gradient accumulation steps
+  
+  # Loss coefficients
+  ent_coef: 0.01  # Entropy loss coefficient
+  vf_coef:  0.50    # Value function loss coefficient. 0.5
+  
+  # Advantage estimate
+  adv_method: "GAE"
+
+  # Behavioral cloning regularization (optional)
+  use_bc_loss: false  # Whether to use BC loss
+  bc_loss_type: null  # BC loss type: 'W2', 'KL', or null
+  bc_loss_coeff: 0.0  # BC loss coefficient
+  
+  # ReinFlow specific parameters
+  clip_intermediate_actions: false  # Whether to clip intermediate actions during sampling
+  
+  # Noise scheduling
+  max_noise_decay_ratio: 0.7  # Maximum noise decay ratio for 'learn_decay' scheduler
+  max_noise_hold_ratio: 0.35  # Maximum noise hold ratio for 'learn_decay' scheduler
+  
+  # Learning rate and scheduling
+  lr_schedule: "fixed"  # Learning rate schedule: 'fixed' or 'adaptive_kl'
+  
+  # Actor optimizer and scheduler
+  actor_optimizer:
+    lr: 2e-5
+    betas: [0.9, 0.999]
+    eps: 1e-8
+    weight_decay: 1e-5
+  actor_lr_scheduler:
+    type: "cosine"  # 'cosine', 'plateau', 'constant_warmup', 'cosine_custom'
+    first_cycle_steps: 100  # For cosine scheduler
+    min_lr: 1e-6
+    warmup_steps: 20
+    hold_steps: 30  # For cosine_custom scheduler
+    anneal_steps: 50  # For cosine_custom scheduler
+    max_lr_decrease_per_cycle: 1.0
+    cycle_mult: 1.0
+
+  # Critic optimizer and scheduler
+  critic_optimizer:
+    lr: 1e-4
+    betas: [0.9, 0.999]
+    eps: 1e-8
+    weight_decay: 1e-6
+  critic_lr_scheduler:
+    type: "cosine"  # 'cosine', 'plateau', 'constant_warmup', 'cosine_custom'
+    first_cycle_steps: 100  # For cosine scheduler
+    min_lr: 3e-5
+    warmup_steps: 20
+    hold_steps: 30  # For cosine_custom scheduler
+    anneal_steps: 50  # For cosine_custom scheduler
+    max_lr_decrease_per_cycle: 1.0
+    cycle_mult: 1.0
+
+  # Additional training options
+  save_trajs: false     # Whether to save trajectories. not implemented yet. 
+  use_early_stop: true 
+
+logging:
+  verbose_update: true        # Verbose logging during training
+  verbose_sampling_progress: true
+  verbose_each_step: false
+  verbose_buffer_filling: false
+  verbose_input: false         # Show input batch to the model. 
+
+memory:
+  enable_aggressive_cleanup: true
+  memory_cleanup_freq_rollout: 25
+  memory_cleanup_freq_grad: 5
+
+# Output settings
+output:
+  dir: results/rlft_pi0_maniskill/${env.id}/seed${seed}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  save_videos: true
+  save_data: true
+  info_on_video: true
+
+# Wandb logging (optional)
+wandb:
+  entity: ${oc.env:PIR_WANDB_ENTITY}
+  project: pi0_rl_ManiSkill3
+  run: ${now:%Y-%m-%d}_${now:%H-%M-%S}_${name}
+  offline_mode: false
