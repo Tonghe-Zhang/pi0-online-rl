@@ -13,9 +13,6 @@ Date: July, 2025 to October, 2025
 
 ## TODOs
 Places need to be changed in ppo_runner.py
-1. self.model.effective_action_dim currently we slice it by treating the first several indices as valid motors. 
-but maybe these motors ids are discontinuous, then we should replace :eff_act_dim with eff_act_ids
-1. Precision issues: the pytorch weights contain float point 32 and bfloat16 may need to make it consistent before using FSDP/deepspeed. 
 2.  amp overflow problem bfloat16 paligemma attention mask large constant (`big_neg`)
 
 ## Installation
